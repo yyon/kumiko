@@ -8,6 +8,7 @@ import tempfile
 import argparse
 from natsort import natsorted, ns
 import math
+import subprocess
 
 parser = argparse.ArgumentParser(
                     prog='splitter',
@@ -15,20 +16,37 @@ parser = argparse.ArgumentParser(
                     epilog='Text at the bottom of help')
 parser.add_argument('input')
 parser.add_argument('output')
+parser.add_argument('-s', '--scroll-large', action='store_true')
 parser.add_argument('-r', '--recurse',
                     action='store_true')
-parser.add_argument('-n', '--nofolders',
+parser.add_argument('-n', '--no-folders',
+                    action='store_true')
+parser.add_argument('-d', '--remove-duplicates',
                     action='store_true')
 
 args = parser.parse_args()
 
 input_dir = args.input
 output_dir = args.output
+scroll_large = args.scroll_large
 recurse = args.recurse
-nofolders = args.nofolders
+nofolders = args.no_folders
+remove_duplicates = args.remove_duplicates
 
 for filename in os.listdir(output_dir):
     raise Exception("output dir must be empty")
+
+ignore_files = []
+if remove_duplicates:
+    fdupes_command = ["fdupes", input_dir]
+    if recurse:
+        fdupes_command.append("-r")
+    fdupes_output = str(subprocess.check_output(fdupes_command))
+    for group_text in fdupes_output.split("\\n\\n"):
+        group = group_text.split("\\n")
+        group = [os.path.realpath(path) for path in group]
+        if len(group) >= 10:
+            ignore_files += group[1:]
 
 if recurse:
     input_folders = []
@@ -61,10 +79,10 @@ for folder_i, img_dir in enumerate(input_folders):
 
     images_paths = []
     for filename in os.listdir(img_dir):
-        img_path = os.path.join(img_dir, filename)
+        img_path = os.path.realpath(os.path.join(img_dir, filename))
 
         kind = filetype.guess(img_path)
-        if kind == None or not kind.mime.startswith("image/"):
+        if kind == None or not kind.mime.startswith("image/") or img_path in ignore_files:
             continue
         
         images_paths.append(img_path)
@@ -108,8 +126,8 @@ for folder_i, img_dir in enumerate(input_folders):
         merged_panels[0] = [0, merged_panels[0][0] + merged_panels[0][1]]
         merged_panels[-1][-1] = total_height - merged_panels[-1][0]
 
-        ratio = 1080 / (1920 * .4)
-        max_height = max_width * ratio
+        ratio = 1080 / (1920 * .5)
+        max_height = int(max_width * ratio)
 
         current_y = 0
         split_positions = []
@@ -147,6 +165,20 @@ for folder_i, img_dir in enumerate(input_folders):
             
             split_positions.append([current_y, cutoff-current_y])
             current_y = cutoff
+        
+        if scroll_large:
+            split_positions_original = split_positions
+            split_positions = []
+            for page in split_positions_original:
+                if page[1] > max_height:
+                    scroll_size = int(max_height * .4)
+                    current_y = page[0]
+                    while current_y + max_height <= page[0] + page[1]:
+                        split_positions.append([current_y, max_height])
+                        current_y += scroll_size
+                    split_positions.append([page[0] + page[1] - max_height, max_height])
+                else:
+                    split_positions.append(page)
 
         # print(max_height, merged_panels)
         print(split_positions)
@@ -167,11 +199,11 @@ for folder_i, img_dir in enumerate(input_folders):
             padded_img.paste(page_img, (0,max(0, int(max_height/2 - height/2))))
 
             if nofolders:
-                folder_prefix = str(folder_i).zfill(3) + "_"
+                prefix = str(folder_i).zfill(3) + "_"
             else:
-                folder_prefix = ""
-
-            padded_img.save(os.path.join(output_to, folder_prefix + str(page_i).zfill(3) + ".png"))
+                prefix = ""
+            
+            padded_img.save(os.path.join(output_to, prefix + str(page_i).zfill(3) + ".png"))
 
     finally:
         os.remove(full_strip_path)
