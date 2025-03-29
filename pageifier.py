@@ -23,6 +23,8 @@ parser.add_argument('-n', '--no-folders',
                     action='store_true')
 parser.add_argument('-d', '--remove-duplicates',
                     action='store_true')
+parser.add_argument('-w', '--width',
+                    default=50, type=int)
 
 args = parser.parse_args()
 
@@ -32,6 +34,7 @@ scroll_large = args.scroll_large
 recurse = args.recurse
 nofolders = args.no_folders
 remove_duplicates = args.remove_duplicates
+target_width = args.width
 
 for filename in os.listdir(output_dir):
     raise Exception("output dir must be empty")
@@ -87,6 +90,18 @@ for folder_i, img_dir in enumerate(input_folders):
         
         images_paths.append(img_path)
 
+    if recurse and not nofolders:
+        output_to = os.path.join(output_dir, str(folder_i).zfill(3))
+        os.makedirs(output_to)
+    else:
+        output_to = output_dir
+
+    if nofolders:
+        folder_prefix = str(folder_i).zfill(3) + "_"
+    else:
+        folder_prefix = ""
+    
+
     images_paths = natsorted(images_paths)
 
     images_original = [Image.open(img_path) for img_path in images_paths]
@@ -117,23 +132,31 @@ for folder_i, img_dir in enumerate(input_folders):
 
         info = page.get_infos()
 
+        # for page_i, page in enumerate(info["panels"]):
+        #     page_img = full_strip_image.crop((page[0], page[1], page[0] + page[2], page[1] + page[3]))
+        #     page_img.save(os.path.join(output_to, "panel_" + folder_prefix + str(page_i).zfill(3) + ".png"))
+
         panel_ys = [[panel[1], panel[3]] for panel in info["panels"]]
 
         merged_panels = merge_intervals(panel_ys)
 
         merged_panels.sort(key=lambda x: x[0])
 
-        ratio = 1080 / (1920 * .5)
+        # for page_i, page in enumerate(merged_panels):
+        #     page_img = full_strip_image.crop((0, int(page[0]), max_width, int(page[0]) + int(page[1])))
+        #     page_img.save(os.path.join(output_to, "merged_panel_" + folder_prefix + str(page_i).zfill(3) + ".png"))
+
+        ratio = 1080 / (1920 * (target_width / 100))
         max_height = int(max_width * ratio)
 
         merged_panels_split_solid = []
         pixels = full_strip_image.load()
-        min_whitespace = int(max_height / 25)
+        min_whitespace = int(max_height / 40)
         for panel in merged_panels:
             uniform_rows = []
             for y in range(panel[0], panel[0] + panel[1]):
                 first_color = pixels[0, y]
-                if all(pixels[x, y] == first_color for x in range(max_width)):
+                if all(all(abs(pixels[x, y][z] - first_color[z]) < 20 for z in range(3)) for x in range(max_width)):
                     if len(uniform_rows) == 0 or uniform_rows[-1][0] + uniform_rows[-1][1] != y:
                         uniform_rows.append([y, 1])
                     else:
@@ -153,6 +176,10 @@ for folder_i, img_dir in enumerate(input_folders):
                     merged_panels_split_solid.append([current_y, panel[0] + panel[1] - current_y])
         merged_panels = merged_panels_split_solid
 
+        # for page_i, page in enumerate(merged_panels):
+        #     page_img = full_strip_image.crop((0, int(page[0]), max_width, int(page[0]) + int(page[1])))
+        #     page_img.save(os.path.join(output_to, "split_panel_" + folder_prefix + str(page_i).zfill(3) + ".png"))
+
         max_whitespace = int(max_height / 6)
         panels_and_whitespace = []
         current_y = 0
@@ -168,6 +195,10 @@ for folder_i, img_dir in enumerate(input_folders):
             if whitespace_size > max_whitespace:
                 panels_and_whitespace.append([current_y, whitespace_size])
         merged_panels = panels_and_whitespace
+
+        # for page_i, page in enumerate(merged_panels):
+        #     page_img = full_strip_image.crop((0, int(page[0]), max_width, int(page[0]) + int(page[1])))
+        #     page_img.save(os.path.join(output_to, "panel_with_whitespace" + folder_prefix + str(page_i).zfill(3) + ".png"))
 
         merged_panels[0] = [0, merged_panels[0][0] + merged_panels[0][1]]
         merged_panels[-1][-1] = total_height - merged_panels[-1][0]
@@ -226,12 +257,6 @@ for folder_i, img_dir in enumerate(input_folders):
         # print(max_height, merged_panels)
         print(split_positions)
 
-        if recurse and not nofolders:
-            output_to = os.path.join(output_dir, str(folder_i).zfill(3))
-            os.makedirs(output_to)
-        else:
-            output_to = output_dir
-
         for page_i, page in enumerate(split_positions):
             position_y = int(page[0])
             height = int(page[1])
@@ -240,13 +265,8 @@ for folder_i, img_dir in enumerate(input_folders):
 
             padded_img = Image.new('RGB', (max_width, max(height, int(max_height))), color="white")
             padded_img.paste(page_img, (0,max(0, int(max_height/2 - height/2))))
-
-            if nofolders:
-                prefix = str(folder_i).zfill(3) + "_"
-            else:
-                prefix = ""
             
-            padded_img.save(os.path.join(output_to, prefix + str(page_i).zfill(3) + ".png"))
+            padded_img.save(os.path.join(output_to, folder_prefix + str(page_i).zfill(3) + ".png"))
 
     finally:
         os.remove(full_strip_path)
