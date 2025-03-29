@@ -123,11 +123,54 @@ for folder_i, img_dir in enumerate(input_folders):
 
         merged_panels.sort(key=lambda x: x[0])
 
-        merged_panels[0] = [0, merged_panels[0][0] + merged_panels[0][1]]
-        merged_panels[-1][-1] = total_height - merged_panels[-1][0]
-
         ratio = 1080 / (1920 * .5)
         max_height = int(max_width * ratio)
+
+        merged_panels_split_solid = []
+        pixels = full_strip_image.load()
+        min_whitespace = int(max_height / 25)
+        for panel in merged_panels:
+            uniform_rows = []
+            for y in range(panel[0], panel[0] + panel[1]):
+                first_color = pixels[0, y]
+                if all(pixels[x, y] == first_color for x in range(max_width)):
+                    if len(uniform_rows) == 0 or uniform_rows[-1][0] + uniform_rows[-1][1] != y:
+                        uniform_rows.append([y, 1])
+                    else:
+                        uniform_rows[-1][1] += 1
+
+            uniform_rows = [uniform_row for uniform_row in uniform_rows if uniform_row[1] >= min_whitespace]
+            
+            if len(uniform_rows) == 0:
+                merged_panels_split_solid.append(panel)
+            else:
+                current_y = panel[0]
+                for uniform_row in uniform_rows:
+                    if current_y != uniform_row[0]:
+                        merged_panels_split_solid.append([current_y, uniform_row[0] - current_y])
+                    current_y = uniform_row[0] + uniform_row[1]
+                if current_y != panel[0] + panel[1]:
+                    merged_panels_split_solid.append([current_y, panel[0] + panel[1] - current_y])
+        merged_panels = merged_panels_split_solid
+
+        max_whitespace = int(max_height / 6)
+        panels_and_whitespace = []
+        current_y = 0
+        for panel in merged_panels:
+            if panel[0] != current_y:
+                whitespace_size = panel[0] - current_y
+                if whitespace_size > max_whitespace:
+                    panels_and_whitespace.append([current_y, whitespace_size])
+            panels_and_whitespace.append(panel)
+            current_y = panel[0] + panel[1]
+        if total_height != current_y:
+            whitespace_size = total_height - current_y
+            if whitespace_size > max_whitespace:
+                panels_and_whitespace.append([current_y, whitespace_size])
+        merged_panels = panels_and_whitespace
+
+        merged_panels[0] = [0, merged_panels[0][0] + merged_panels[0][1]]
+        merged_panels[-1][-1] = total_height - merged_panels[-1][0]
 
         current_y = 0
         split_positions = []
